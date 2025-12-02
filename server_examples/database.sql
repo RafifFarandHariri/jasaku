@@ -1,0 +1,107 @@
+SQL schema for Jasaku app
+Create database (use phpMyAdmin or mysql cli):
+
+CREATE DATABASE jasaku_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Then import this file into the database.
+USE DATABASE jasaku_db;
+
+CREATE TABLE IF NOT EXISTS `users` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `nrp` VARCHAR(64) DEFAULT NULL,
+  `nama` VARCHAR(191) NOT NULL,
+  `email` VARCHAR(191) NOT NULL UNIQUE,
+  `password_hash` VARCHAR(255) DEFAULT NULL,
+  `phone` VARCHAR(32) DEFAULT NULL,
+  `profile_image` TEXT DEFAULT NULL,
+  `role` VARCHAR(32) NOT NULL DEFAULT 'customer',
+  `is_verified_provider` TINYINT(1) NOT NULL DEFAULT 0,
+  `provider_since` DATETIME DEFAULT NULL,
+  `provider_description` TEXT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `services` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `title` VARCHAR(255) NOT NULL,
+  `seller` VARCHAR(191) NOT NULL,
+  `price` INT NOT NULL DEFAULT 0,
+  `sold` INT NOT NULL DEFAULT 0,
+  `rating` DOUBLE NOT NULL DEFAULT 0,
+  `reviews` INT NOT NULL DEFAULT 0,
+  `is_verified` TINYINT(1) NOT NULL DEFAULT 1,
+  `has_fast_response` TINYINT(1) NOT NULL DEFAULT 1,
+  `category` VARCHAR(128) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `orders` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `serviceId` INT DEFAULT NULL,
+  `serviceTitle` VARCHAR(255) DEFAULT NULL,
+  `sellerId` VARCHAR(64) DEFAULT NULL,
+  `sellerName` VARCHAR(191) DEFAULT NULL,
+  `customerId` VARCHAR(64) DEFAULT NULL,
+  `customerName` VARCHAR(191) DEFAULT NULL,
+  `price` DOUBLE DEFAULT 0,
+  `quantity` INT DEFAULT 1,
+  `notes` TEXT DEFAULT NULL,
+  `status` INT DEFAULT 0,
+  `orderDate` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `deadline` DATETIME DEFAULT NULL,
+  `completedDate` DATETIME DEFAULT NULL,
+  `paymentMethod` VARCHAR(64) DEFAULT NULL,
+  `isPaid` TINYINT(1) DEFAULT 0,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS `order_progress` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `orderId` VARCHAR(64) NOT NULL,
+  `percentage` INT NOT NULL DEFAULT 0,
+  `description` TEXT DEFAULT NULL,
+  `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `imageUrl` TEXT DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `payments` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `orderId` VARCHAR(64) DEFAULT NULL,
+  `amount` DOUBLE DEFAULT 0,
+  `paymentMethod` VARCHAR(64) DEFAULT NULL,
+  `status` INT DEFAULT 0,
+  `createdAt` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `paidAt` DATETIME DEFAULT NULL,
+  `qrCodeUrl` TEXT DEFAULT NULL,
+  `paymentReference` VARCHAR(191) DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `chats` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `conversationId` VARCHAR(64) DEFAULT NULL,
+  `text` TEXT DEFAULT NULL,
+  `isMe` TINYINT(1) DEFAULT 0,
+  `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `type` INT DEFAULT 0,
+  `senderName` VARCHAR(191) DEFAULT NULL,
+  `serviceId` INT DEFAULT NULL,
+  `proposedPrice` DOUBLE DEFAULT NULL,
+  `offerId` VARCHAR(64) DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `price_offers` (
+  `id` VARCHAR(64) PRIMARY KEY,
+  `serviceId` INT DEFAULT NULL,
+  `originalPrice` DOUBLE DEFAULT 0,
+  `proposedPrice` DOUBLE DEFAULT 0,
+  `message` TEXT DEFAULT NULL,
+  `status` INT DEFAULT 0,
+  `createdAt` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `respondedAt` DATETIME DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS `wishlist` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `userId` VARCHAR(64) DEFAULT NULL,
+  `serviceId` INT DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
