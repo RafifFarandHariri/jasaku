@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:jasaku_app/services/api_service.dart';
-import 'package:jasaku_app/providers/auth_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:jasaku_app/providers/auth_provider.dart';
+import 'package:jasaku_app/services/api_service.dart';
 
 class StatsScreen extends StatefulWidget {
   const StatsScreen({Key? key}) : super(key: key);
@@ -12,10 +12,11 @@ class StatsScreen extends StatefulWidget {
 
 class _StatsScreenState extends State<StatsScreen> {
   bool _loading = true;
-  int _ordersCount = 0;
-  double _revenue = 0.0;
-  double _avgOrder = 0.0;
-  List<double> _recent = []; // recent order amounts for sparkline
+  List<dynamic> _orders = [];
+
+  int _totalOrders = 0;
+  int _incomingOrders = 0;
+  double _totalRevenue = 0.0; // revenue from completed orders
 
   @override
   void didChangeDependencies() {
@@ -26,138 +27,168 @@ class _StatsScreenState extends State<StatsScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final sellerId = auth.user?.id ?? 0;
-    final url = 'http://localhost/jasaku_api/api/api.php?resource=orders&sellerId=$sellerId';
-    final res = await ApiService.get(url);
-    List<dynamic> my = [];
+    final sellerId = auth.user?.id ?? '';
+    final sellerName = auth.user?.nama ?? '';
+
+    final routerBase = 'http://localhost/jasaku_api/api/api.php';
+    // try by sellerId
+    final urlById = '$routerBase?resource=orders&sellerId=$sellerId';
+    dynamic res = await ApiService.get(urlById);
     if (res is List) {
-      my = res;
+      _orders = res;
+    } else {
+      _orders = [];
     }
 
-    _ordersCount = my.length;
-    _revenue = my.fold(0.0, (sum, o) => sum + (double.tryParse((o['price'] ?? 0).toString()) ?? 0.0));
-    _avgOrder = _ordersCount > 0 ? (_revenue / _ordersCount) : 0.0;
+    // fallback: by sellerName
+    if (_orders.isEmpty && sellerName.isNotEmpty) {
+      final urlByName = '$routerBase?resource=orders&sellerName=${Uri.encodeQueryComponent(sellerName)}';
+      final res2 = await ApiService.get(urlByName);
+      if (res2 is List) _orders = res2;
+    }
 
-    // recent amounts (last 8 orders)
-    _recent = my.reversed
-        .take(8)
-        .map((o) => double.tryParse((o['price'] ?? 0).toString())?.toDouble() ?? 0.0)
-        .toList();
+    // final fallback: fetch all and filter locally by normalized seller id/name
+    if (_orders.isEmpty) {
+      final urlAll = '$routerBase?resource=orders';
+      final resAll = await ApiService.get(urlAll);
+      if (resAll is List) {
+        final sid = sellerId.toString().toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+        final sname = sellerName.toString().toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+        _orders = (resAll as List).where((o) {
+          try {
+            final osid = (o['sellerId'] ?? '').toString().toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+            final oname = (o['sellerName'] ?? '').toString().toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+            if (sid.isNotEmpty && osid == sid) return true;
+            if (sname.isNotEmpty && oname == sname) return true;
+            if (sid.isNotEmpty && oname.contains(sid)) return true;
+            if (sname.isNotEmpty && osid.contains(sname)) return true;
+          } catch (_) {}
+          return false;
+        }).toList();
+      }
+    }
+
+    // compute metrics
+    _totalOrders = _orders.length;
+    _incomingOrders = _orders.where((o) {
+      final st = o['status'];
+      final s = int.tryParse(st?.toString() ?? '') ?? -1;
+      return s == 0; // pending
+    }).length;
+
+    double revenue = 0.0;
+    for (final o in _orders) {
+      final st = o['status'];
+      final s = int.tryParse(st?.toString() ?? '') ?? -1;
+      if (s == 4) { // completed orders count toward revenue
+        final p = o['price'];
+        final q = o['quantity'] ?? 1;
+        double price = 0.0;
+        if (p is int) price = p.toDouble();
+        else if (p is double) price = p;
+        else price = double.tryParse(p?.toString() ?? '0') ?? 0.0;
+        final qty = int.tryParse(q?.toString() ?? '1') ?? 1;
+        revenue += price * qty;
+      }
+    }
+    _totalRevenue = revenue;
 
     setState(() => _loading = false);
   }
 
-  Widget _statCard(String title, String value, Color color, IconData icon) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
-        padding: EdgeInsets.all(16),
-        width: double.infinity,
-        child: Row(
-          children: [
-            Container(
-              decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
-              padding: EdgeInsets.all(12),
-              child: Icon(icon, color: color, size: 28),
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: TextStyle(color: Colors.grey[700])),
-                  SizedBox(height: 6),
-                  Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sparkline(List<double> values) {
-    if (values.isEmpty) return Center(child: Text('Belum ada data'));
-    final maxv = values.reduce((a, b) => a > b ? a : b);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: values.map((v) {
-        final h = maxv == 0 ? 4.0 : (v / maxv) * 60 + 4;
-        return Expanded(
-          child: Container(
-            margin: EdgeInsets.symmetric(horizontal: 4),
-            height: h,
-            decoration: BoxDecoration(
-              color: Colors.blueAccent,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-        );
-      }).toList(),
-    );
+  String _fmtCurrency(double v) {
+    final rounded = v.toStringAsFixed(0);
+    return 'Rp $rounded';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Statistik Penjualan')),
+      appBar: AppBar(title: const Text('Statistik Penjualan')),
       body: _loading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _load,
               child: SingleChildScrollView(
-                physics: AlwaysScrollableScrollPhysics(),
+                physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Ringkasan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    SizedBox(height: 12),
-                    _statCard('Total Pesanan', '$_ordersCount', Colors.blue, Icons.shopping_bag_outlined),
-                    _statCard('Total Pendapatan', 'Rp ${_revenue.toStringAsFixed(0)}', Colors.green, Icons.account_balance_wallet_outlined),
-                    _statCard('Rata-rata Order', 'Rp ${_avgOrder.toStringAsFixed(0)}', Colors.orange, Icons.show_chart),
-                    SizedBox(height: 20),
-                    Text('Pendapatan Terbaru', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    SizedBox(height: 12),
+                    const Text('Ringkasan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(12.0),
-                        child: Column(
+                        child: Row(
                           children: [
-                            SizedBox(height: 8),
-                            SizedBox(height: 80, child: _sparkline(_recent)),
-                            SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Menampilkan ${_recent.length} pesanan terakhir', style: TextStyle(color: Colors.grey[600])),
-                                Text('Total: Rp ${_recent.fold(0.0, (s, e) => s + e).toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.bold)),
-                              ],
-                            )
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Total Pesanan', style: TextStyle(color: Colors.grey)),
+                                  const SizedBox(height: 6),
+                                  Text('$_totalOrders', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Pesanan Masuk', style: TextStyle(color: Colors.grey)),
+                                  const SizedBox(height: 6),
+                                  Text('$_incomingOrders', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ),
-                    SizedBox(height: 24),
-                    Text('Detail Pesanan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    SizedBox(height: 8),
-                    // Simple list of recent orders
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      itemCount: _recent.length,
-                      separatorBuilder: (_, __) => Divider(),
-                      itemBuilder: (ctx, i) {
-                        final amt = _recent[i];
-                        return ListTile(
-                          leading: CircleAvatar(backgroundColor: Colors.blueAccent, child: Icon(Icons.attach_money, color: Colors.white)),
-                          title: Text('Pesanan #${i + 1}'),
-                          subtitle: Text('Rp ${amt.toStringAsFixed(0)}'),
-                        );
-                      },
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Total Pendapatan (Selesai)', style: TextStyle(color: Colors.grey)),
+                                  const SizedBox(height: 6),
+                                  Text(_fmtCurrency(_totalRevenue), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
+                    const SizedBox(height: 20),
+                    const Text('Pesanan Terbaru', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    _orders.isEmpty
+                        ? const Center(child: Padding(padding: EdgeInsets.all(24.0), child: Text('Belum ada pesanan')))
+                        : Column(
+                            children: _orders.reversed.take(8).map((o) {
+                              final id = o['id'] ?? o['order_id'] ?? '—';
+                              final status = o['status']?.toString() ?? '-';
+                              final priceRaw = o['price'];
+                              double price = 0.0;
+                              if (priceRaw is int) price = priceRaw.toDouble();
+                              else if (priceRaw is double) price = priceRaw;
+                              else price = double.tryParse(priceRaw?.toString() ?? '0') ?? 0.0;
+                              final qty = int.tryParse((o['quantity'] ?? 1).toString()) ?? 1;
+                              final date = o['created_at'] ?? o['order_date'] ?? '';
+                              return ListTile(
+                                title: Text('#$id'),
+                                subtitle: Text('Status: $status • ${date.toString().substring(0, 10)}'),
+                                trailing: Text(_fmtCurrency(price * qty)),
+                              );
+                            }).toList(),
+                          ),
                   ],
                 ),
               ),
