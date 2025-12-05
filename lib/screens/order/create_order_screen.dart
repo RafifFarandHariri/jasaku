@@ -34,6 +34,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     'Kartu Kredit',
   ];
 
+  // Helper to determine the base price (service price or selected package price)
+  double _getBasePrice() {
+    if (widget.selectedPackage != null && widget.selectedPackage!['price'] != null) {
+      final p = widget.selectedPackage!['price'];
+      if (p is num) return p.toDouble();
+      if (p is String) return double.tryParse(p) ?? widget.service.price.toDouble();
+    }
+    return widget.service.price.toDouble();
+  }
+
   // GANTI method _submitOrder dengan ini:
   void _submitOrder() async {
     if (_formKey.currentState!.validate()) {
@@ -42,7 +52,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       });
 
       try {
-        // Build payload for server
+        // Compute base price and build payload for server
+        final basePrice = _getBasePrice();
         final nowIso = DateTime.now().toIso8601String();
         final payload = {
           'serviceId': widget.service.id.toString(),
@@ -215,9 +226,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final basePrice = (widget.selectedPackage != null && widget.selectedPackage!['price'] != null)
-        ? (int.tryParse(widget.selectedPackage!['price'].toString()) ?? widget.service.price)
-        : widget.service.price;
+    final basePrice = _getBasePrice();
     final totalPrice = basePrice * _quantity;
 
     return Scaffold(
